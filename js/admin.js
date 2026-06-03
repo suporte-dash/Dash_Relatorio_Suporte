@@ -8,6 +8,7 @@ let editingAtendente = null;
 let editingFluxoAtendIdx = null;
 let editingFluxoIdx = null;
 let editingGeralIdx = null;
+let pendingExcelFile = null;
 
 function adminInit() {
   adminData = loadData();
@@ -408,6 +409,7 @@ function num(v) {
 function loadExcelFile() {
   const file = document.getElementById('excelFileInput').files[0];
   if (!file) { showToast('Selecione um arquivo .xlsx', 'error'); return; }
+  pendingExcelFile = file;
 
   const reader = new FileReader();
   reader.onload = (e) => {
@@ -421,6 +423,23 @@ function loadExcelFile() {
     }
   };
   reader.readAsArrayBuffer(file);
+}
+
+async function uploadExcelFile(file) {
+  const response = await fetch(`/api/uploads?name=${encodeURIComponent(file.name)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': file.type || 'application/octet-stream',
+    },
+    body: file,
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || 'Falha ao salvar o arquivo no servidor');
+  }
+
+  return response.json();
 }
 
 function parseExcelData(wb) {
@@ -705,7 +724,7 @@ function showExcelPreview(parsed, wb) {
   window._pendingImport = parsed;
 }
 
-function confirmImport() {
+async function confirmImport() {
   const parsed = window._pendingImport;
   if (!parsed) return;
 
@@ -723,6 +742,14 @@ function confirmImport() {
 
   saveData(adminData);
 
+  if (pendingExcelFile) {
+    try {
+      await uploadExcelFile(pendingExcelFile);
+    } catch (err) {
+      showToast('Importação concluída, mas sem salvar o arquivo no servidor.', 'error');
+    }
+  }
+
   // Atualiza todas as tabelas admin
   renderAtendentesTable();
   renderFluxoDetalheTable();
@@ -731,6 +758,7 @@ function confirmImport() {
   renderHistoricoTable();
 
   cancelImport();
+  pendingExcelFile = null;
   showToast(`✅ Dados de "${periodo}" importados com sucesso!`, 'success');
 }
 
@@ -738,6 +766,7 @@ function cancelImport() {
   const area = document.getElementById('excelPreviewArea');
   if (area) { area.innerHTML = ''; area.style.display = 'none'; }
   window._pendingImport = null;
+  pendingExcelFile = null;
   const input = document.getElementById('excelFileInput');
   if (input) input.value = '';
 }
