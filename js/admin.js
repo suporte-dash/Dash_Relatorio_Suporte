@@ -481,6 +481,7 @@ function renderHistoricoTable() {
         <div class="actions-col">
           <button class="btn btn-primary btn-sm" onclick="viewSnapshotOnDashboard(${entry.id})">👁 Ver no Dash</button>
           <button class="btn btn-outline btn-sm" onclick="loadSnapshot(${entry.id})">📂 Carregar</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteSnapshot(${entry.id})">🗑️ Apagar</button>
         </div>
       </td>
     `;
@@ -516,6 +517,27 @@ function viewSnapshotOnDashboard(id) {
   const newTab = window.open(dashUrl, '_blank');
   if (!newTab) {
     window.location.href = dashUrl;
+  }
+}
+
+async function deleteSnapshot(id) {
+  const entry = adminHistory.find(item => item.id === id) || null;
+  if (!entry) {
+    showToast('Relatório não encontrado', 'error');
+    return;
+  }
+
+  if (!confirm(`Apagar o relatório "${entry.periodo}"? Esse item vai sair do histórico e o arquivo salvo será removido.`)) return;
+
+  try {
+    await deleteRemoteHistoryEntry(id);
+    const refreshed = await loadRemoteAdminState();
+    adminData = refreshed.currentData;
+    adminHistory = refreshed.history;
+    renderHistoricoTable();
+    showToast('Relatório apagado com sucesso!', 'success');
+  } catch (error) {
+    showToast('Não foi possível apagar o relatório: ' + error.message, 'error');
   }
 }
 

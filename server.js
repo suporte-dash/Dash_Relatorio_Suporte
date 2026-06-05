@@ -261,6 +261,27 @@ function handleHistoryById(res, id) {
   sendJson(res, 200, entry);
 }
 
+function handleHistoryDelete(res, id) {
+  const state = readState();
+  const index = state.history.findIndex((item) => String(item.id) === String(id));
+  if (index === -1) {
+    sendJson(res, 404, { error: 'History entry not found' });
+    return;
+  }
+
+  const [removed] = state.history.splice(index, 1);
+  if (removed?.savedFileName) {
+    fs.rm(path.join(UPLOAD_DIR, removed.savedFileName), { force: true }, () => {});
+  }
+
+  if (index === 0) {
+    state.currentData = state.history[0]?.data || null;
+  }
+
+  saveState(state);
+  sendJson(res, 200, { ok: true, state, removed });
+}
+
 ensureDir(UPLOAD_DIR);
 ensureDir(STORAGE_DIR);
 if (!fs.existsSync(STATE_FILE)) {
@@ -283,6 +304,12 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && url.pathname.startsWith('/api/history/')) {
     const id = url.pathname.split('/').pop();
     handleHistoryById(res, id);
+    return;
+  }
+
+  if (req.method === 'DELETE' && url.pathname.startsWith('/api/history/')) {
+    const id = url.pathname.split('/').pop();
+    handleHistoryDelete(res, id);
     return;
   }
 

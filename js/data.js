@@ -176,6 +176,12 @@ async function fetchRemoteHistoryEntry(id) {
   return apiJson(`/api/history/${encodeURIComponent(id)}`);
 }
 
+async function deleteRemoteHistoryEntry(id) {
+  return apiJson(`/api/history/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
 async function submitRemoteImport(payload) {
   return apiJson('/api/import', {
     method: 'POST',
