@@ -136,14 +136,17 @@ function resetData() {
 }
 
 async function apiJson(pathname, options = {}) {
-  const response = await fetch(pathname, {
+  const request = {
     credentials: 'same-origin',
+    cache: 'no-store',
+    ...options,
     headers: {
       'Content-Type': 'application/json',
       ...(options.headers || {}),
     },
-    ...options,
-  });
+  };
+
+  const response = await fetch(pathname, request);
 
   const isJson = (response.headers.get('content-type') || '').includes('application/json');
   const payload = isJson ? await response.json() : await response.text();

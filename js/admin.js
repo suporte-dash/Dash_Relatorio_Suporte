@@ -88,9 +88,7 @@ async function loadRemoteAdminState() {
 }
 
 async function adminInit() {
-  if (adminInitialized) {
-    return;
-  }
+  if (adminInitialized) return;
 
   const state = await loadRemoteAdminState();
   adminData = state.currentData;
@@ -134,10 +132,10 @@ async function loginAdmin() {
     setAdminVisible(true);
     resetPasswordInput();
 
-    if (adminInitialized) {
-      await syncAdminData();
-    } else {
+    if (!adminInitialized) {
       await adminInit();
+    } else {
+      await syncAdminData();
     }
 
     showToast('Acesso liberado!', 'success');
@@ -154,7 +152,7 @@ async function logoutAdmin() {
   try {
     await logoutRemoteAdmin();
   } catch (error) {
-    // Continua ocultando a área mesmo se o logout remoto falhar.
+    // segue o fluxo local mesmo se a sessão remota não responder
   }
 
   adminAuthenticated = false;
@@ -211,6 +209,23 @@ async function uploadExcelFile(file) {
 
   return response.json();
 }
+
+// async function uploadExcelFile(file) {
+//   const response = await fetch(`/api/uploads?name=${encodeURIComponent(file.name)}`, {
+//     method: 'POST',
+//     headers: {
+//       'Content-Type': file.type || 'application/octet-stream',
+//     },
+//     body: file,
+//   });
+
+//   if (!response.ok) {
+//     const message = await response.text();
+//     throw new Error(message || 'Falha ao salvar o arquivo no servidor');
+//   }
+
+//   return response.json();
+// }
 
 const FLUXO_MAP = {
   'SEM INTERNET': { geral_matriz: 'SEM INTERNET — MATRIZ', geral_filiais: null },
@@ -645,3 +660,12 @@ window.addEventListener('storage', (event) => {
 setInterval(() => {
   syncAdminData().catch(() => {});
 }, 15000);
+
+window.loginAdmin = loginAdmin;
+window.logoutAdmin = logoutAdmin;
+window.loadExcelFile = loadExcelFile;
+window.confirmImport = confirmImport;
+window.cancelImport = cancelImport;
+window.viewSnapshotOnDashboard = viewSnapshotOnDashboard;
+window.loadSnapshot = loadSnapshot;
+window.deleteSnapshot = deleteSnapshot;
