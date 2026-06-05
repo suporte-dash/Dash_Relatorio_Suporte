@@ -158,7 +158,49 @@ function serveStatic(req, res, pathname) {
   });
 }
 
-function listUploads(res) {
+function handlePublicHistoryGet(res) {
+  const state = readState();
+  const publicHistory = state.history.map(({ id, periodo, savedAt, sourceFileName, savedFileName, data }) => ({
+    id,
+    periodo,
+    savedAt,
+    sourceFileName,
+    savedFileName,
+    hasFile: Boolean(savedFileName && fs.existsSync(path.join(UPLOAD_DIR, savedFileName))),
+    resumo: data?.atendentes ? {
+      total_registrados: data.atendentes.reduce((s, a) => s + a.registrados, 0),
+      total_concluidas: data.atendentes.reduce((s, a) => s + a.concluidas, 0),
+      atendentes: data.atendentes.length,
+    } : null,
+  }));
+  sendJson(res, 200, { history: publicHistory });
+}
+
+function serveUploadFile(res, rawName) {
+  const fileName = sanitizeFileName(rawName);
+  const filePath = path.join(UPLOAD_DIR, fileName);
+
+  if (!filePath.startsWith(UPLOAD_DIR)) {
+    send(res, 403, 'Forbidden');
+    return;
+  }
+
+  fs.stat(filePath, (err, stats) => {
+    if (err || !stats.isFile()) {
+      send(res, 404, 'File not found');
+      return;
+    }
+
+    res.writeHead(200, {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}"`,
+      'Content-Length': stats.size,
+    });
+    fs.createReadStream(filePath).pipe(res);
+  });
+}
+
+
   ensureDir(UPLOAD_DIR);
   fs.readdir(UPLOAD_DIR, (err, files) => {
     if (err) {
@@ -381,6 +423,11 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/public/history') {
+    handlePublicHistoryGet(res);
+    return;
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/history') {
     if (!requireAuth(req, res)) return;
     handleHistoryGet(res);
@@ -413,6 +460,12 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && url.pathname === '/api/uploads') {
     if (!requireAuth(req, res)) return;
     saveUpload(req, res, url);
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname.startsWith('/api/uploads/')) {
+    const fileName = url.pathname.split('/api/uploads/')[1];
+    serveUploadFile(res, fileName);
     return;
   }
 

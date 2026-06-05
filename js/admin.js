@@ -644,7 +644,145 @@ async function deleteSnapshot(id) {
   }
 }
 
+// ─── ÁREA PÚBLICA ─────────────────────────────────────────────────────────
+
+async function loadPublicHistory() {
+  const container = document.getElementById('publicReportsContent');
+  const btn = document.getElementById('refreshPublicBtn');
+  if (!container) return;
+
+  if (btn) btn.disabled = true;
+
+  container.innerHTML = `
+    <div class="public-loading">
+      <div class="loading-spinner"></div>
+      <span>Carregando relatórios...</span>
+    </div>
+  `;
+
+  try {
+    const payload = await apiJson('/api/public/history');
+    const history = payload.history || [];
+    renderPublicHistory(history);
+  } catch (error) {
+    container.innerHTML = `
+      <div class="public-empty">
+        <div class="public-empty-icon">⚠️</div>
+        <p>Não foi possível carregar os relatórios.<br><small>${error.message}</small></p>
+      </div>
+    `;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderPublicHistory(history) {
+  const container = document.getElementById('publicReportsContent');
+  if (!container) return;
+
+  if (!history.length) {
+    container.innerHTML = `
+      <div class="public-empty">
+        <div class="public-empty-icon">📭</div>
+        <p>Nenhum relatório disponível ainda.<br><small>Aguarde o administrador importar uma planilha.</small></p>
+      </div>
+    `;
+    return;
+  }
+
+  const cards = history.map((entry, index) => {
+    const totalReg = entry.resumo?.total_registrados ?? '—';
+    const totalCon = entry.resumo?.total_concluidas ?? '—';
+    const taxa = (entry.resumo?.total_registrados > 0)
+      ? ((entry.resumo.total_concluidas / entry.resumo.total_registrados) * 100).toFixed(1) + '%'
+      : '—';
+    const atendentes = entry.resumo?.atendentes ?? '—';
+    const isLatest = index === 0;
+
+    return `
+      <div class="public-report-card ${isLatest ? 'is-latest' : ''}">
+        <div class="public-report-card-top">
+          <div class="public-report-meta">
+            ${isLatest ? '<span class="public-badge-latest">✦ Mais recente</span>' : ''}
+            <h3 class="public-report-periodo">${entry.periodo}</h3>
+            <span class="public-report-date">🕒 ${entry.savedAt}</span>
+          </div>
+          <div class="public-report-stats">
+            <div class="pub-stat">
+              <span class="pub-stat-val">${totalReg}</span>
+              <span class="pub-stat-lbl">Registrados</span>
+            </div>
+            <div class="pub-stat">
+              <span class="pub-stat-val">${totalCon}</span>
+              <span class="pub-stat-lbl">Concluídas</span>
+            </div>
+            <div class="pub-stat">
+              <span class="pub-stat-val">${taxa}</span>
+              <span class="pub-stat-lbl">Resolução</span>
+            </div>
+            <div class="pub-stat">
+              <span class="pub-stat-val">${atendentes}</span>
+              <span class="pub-stat-lbl">Atendentes</span>
+            </div>
+          </div>
+        </div>
+        <div class="public-report-actions">
+          <button class="btn btn-primary btn-sm" onclick="publicViewOnDash(${entry.id})">
+            📊 Ver no Dashboard
+          </button>
+          <button class="btn btn-outline btn-sm" onclick="publicLoadAsCurrent(${entry.id})">
+            🔄 Carregar como atual
+          </button>
+          ${entry.hasFile ? `
+          <button class="btn btn-outline btn-sm" onclick="publicDownload('${entry.savedFileName}', '${entry.sourceFileName || entry.savedFileName}')">
+            ⬇️ Baixar Excel
+          </button>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.innerHTML = `<div class="public-report-list">${cards}</div>`;
+}
+
+function publicViewOnDash(id) {
+  const url = `index.html?historyId=${encodeURIComponent(id)}`;
+  const tab = window.open(url, '_blank');
+  if (!tab) window.location.href = url;
+}
+
+async function publicLoadAsCurrent(id) {
+  if (!confirm('Deseja carregar este relatório no dashboard? O dashboard passará a exibir os dados deste período.')) return;
+
+  try {
+    const entry = await fetchRemoteHistoryEntry(id);
+    if (!entry?.data) throw new Error('Dados não encontrados');
+
+    await submitRemoteImport({
+      data: entry.data,
+      periodo: entry.periodo,
+      sourceFileName: entry.sourceFileName || null,
+      savedFileName: entry.savedFileName || null,
+    });
+
+    showToast(`Relatório "${entry.periodo}" carregado no dashboard!`, 'success');
+  } catch (error) {
+    showToast('Erro ao carregar relatório: ' + error.message, 'error');
+  }
+}
+
+function publicDownload(savedFileName, originalName) {
+  const a = document.createElement('a');
+  a.href = `/api/uploads/${encodeURIComponent(savedFileName)}`;
+  a.download = originalName || savedFileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  loadPublicHistory();
+
   bootstrapAdmin().catch((error) => {
     setAdminVisible(false);
     showToast('Erro ao verificar acesso: ' + error.message, 'error');
@@ -669,3 +807,7 @@ window.cancelImport = cancelImport;
 window.viewSnapshotOnDashboard = viewSnapshotOnDashboard;
 window.loadSnapshot = loadSnapshot;
 window.deleteSnapshot = deleteSnapshot;
+window.loadPublicHistory = loadPublicHistory;
+window.publicViewOnDash = publicViewOnDash;
+window.publicLoadAsCurrent = publicLoadAsCurrent;
+window.publicDownload = publicDownload;

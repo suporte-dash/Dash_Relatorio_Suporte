@@ -35,6 +35,26 @@
   </div>
 </section>
 
+<!-- ══════════════ ÁREA PÚBLICA: RELATÓRIOS ══════════════ -->
+<section id="publicReports" class="public-reports-section">
+  <div class="public-reports-inner">
+    <div class="public-reports-header">
+      <div>
+        <h2>📊 Relatórios Públicos</h2>
+        <p>Acesse e carregue relatórios importados pelos administradores. Nenhuma senha necessária.</p>
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="loadPublicHistory()" id="refreshPublicBtn">🔄 Atualizar</button>
+    </div>
+
+    <div id="publicReportsContent">
+      <div class="public-loading">
+        <div class="loading-spinner"></div>
+        <span>Carregando relatórios...</span>
+      </div>
+    </div>
+  </div>
+</section>
+
 <div id="adminShell" class="admin-body" style="display:none">
   <aside class="admin-sidebar">
     <div class="admin-nav-label">Importação</div>
