@@ -1,6 +1,8 @@
 services:
   dashboard:
     build: .
+    environment:
+      ADMIN_PASSWORD: "Suporte@2026"
     ports:
       - "8085:8085"
     volumes:

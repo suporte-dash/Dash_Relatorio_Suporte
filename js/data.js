@@ -137,6 +137,7 @@ function resetData() {
 
 async function apiJson(pathname, options = {}) {
   const response = await fetch(pathname, {
+    credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json',
       ...(options.headers || {}),
@@ -186,6 +187,27 @@ async function submitRemoteImport(payload) {
   return apiJson('/api/import', {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+}
+
+async function fetchRemoteAuth() {
+  try {
+    return await apiJson('/api/auth');
+  } catch (error) {
+    return { authenticated: false };
+  }
+}
+
+async function loginRemoteAdmin(password) {
+  return apiJson('/api/login', {
+    method: 'POST',
+    body: JSON.stringify({ password }),
+  });
+}
+
+async function logoutRemoteAdmin() {
+  return apiJson('/api/logout', {
+    method: 'POST',
   });
 }
 

@@ -1,6 +1,8 @@
 let adminData = null;
 let adminHistory = [];
 let pendingExcelFile = null;
+let adminInitialized = false;
+let adminAuthenticated = false;
 
 function showToast(message, type = 'success') {
   const toast = document.getElementById('toast');
@@ -38,6 +40,38 @@ function showPanel(id) {
   document.getElementById(`panel-${id}`)?.classList.add('active');
 }
 
+function setAdminVisible(isVisible) {
+  const gate = document.getElementById('adminLoginGate');
+  const shell = document.getElementById('adminShell');
+  const logoutBtn = document.getElementById('logoutBtn');
+
+  if (gate) gate.style.display = isVisible ? 'none' : 'flex';
+  if (shell) shell.style.display = isVisible ? 'flex' : 'none';
+  if (logoutBtn) logoutBtn.style.display = isVisible ? 'inline-flex' : 'none';
+}
+
+function getPasswordInput() {
+  return document.getElementById('adminPasswordInput');
+}
+
+function resetPasswordInput() {
+  const input = getPasswordInput();
+  if (input) input.value = '';
+}
+
+async function bootstrapAdmin() {
+  const auth = await fetchRemoteAuth();
+  adminAuthenticated = Boolean(auth?.authenticated);
+
+  if (adminAuthenticated) {
+    setAdminVisible(true);
+    await adminInit();
+    return;
+  }
+
+  setAdminVisible(false);
+}
+
 async function loadRemoteAdminState() {
   const remoteState = await fetchRemoteState();
   if (remoteState) {
@@ -54,6 +88,10 @@ async function loadRemoteAdminState() {
 }
 
 async function adminInit() {
+  if (adminInitialized) {
+    return;
+  }
+
   const state = await loadRemoteAdminState();
   adminData = state.currentData;
   adminHistory = state.history;
@@ -69,13 +107,62 @@ async function adminInit() {
 
   renderHistoricoTable();
   showPanel('importar');
+  adminInitialized = true;
 }
 
 async function syncAdminData() {
+  if (!adminAuthenticated) return;
   const state = await loadRemoteAdminState();
   adminData = state.currentData;
   adminHistory = state.history;
   renderHistoricoTable();
+}
+
+async function loginAdmin() {
+  const input = getPasswordInput();
+  const password = String(input?.value || '').trim();
+
+  if (!password) {
+    showToast('Digite a senha para continuar', 'error');
+    input?.focus();
+    return;
+  }
+
+  try {
+    await loginRemoteAdmin(password);
+    adminAuthenticated = true;
+    setAdminVisible(true);
+    resetPasswordInput();
+
+    if (adminInitialized) {
+      await syncAdminData();
+    } else {
+      await adminInit();
+    }
+
+    showToast('Acesso liberado!', 'success');
+  } catch (error) {
+    adminAuthenticated = false;
+    setAdminVisible(false);
+    showToast('Senha inválida: ' + error.message, 'error');
+    input?.focus();
+    input?.select?.();
+  }
+}
+
+async function logoutAdmin() {
+  try {
+    await logoutRemoteAdmin();
+  } catch (error) {
+    // Continua ocultando a área mesmo se o logout remoto falhar.
+  }
+
+  adminAuthenticated = false;
+  pendingExcelFile = null;
+  window._pendingImport = null;
+  cancelImport();
+  setAdminVisible(false);
+  showToast('Você saiu da área admin.', 'success');
 }
 
 function loadExcelFile() {
@@ -110,6 +197,7 @@ function loadExcelFile() {
 async function uploadExcelFile(file) {
   const response = await fetch(`/api/uploads?name=${encodeURIComponent(file.name)}`, {
     method: 'POST',
+    credentials: 'same-origin',
     headers: {
       'Content-Type': file.type || 'application/octet-stream',
     },
@@ -542,7 +630,10 @@ async function deleteSnapshot(id) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  adminInit().catch((error) => showToast('Erro ao carregar admin: ' + error.message, 'error'));
+  bootstrapAdmin().catch((error) => {
+    setAdminVisible(false);
+    showToast('Erro ao verificar acesso: ' + error.message, 'error');
+  });
 });
 
 window.addEventListener('storage', (event) => {

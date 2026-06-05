@@ -12,11 +12,30 @@
 <header class="admin-topbar">
   <h1>📥 Importação de Planilhas <span class="pill">ADMIN</span></h1>
   <div class="topbar-links">
+    <button id="logoutBtn" class="btn btn-outline" style="display:none" onclick="logoutAdmin()">🔒 Sair</button>
     <a href="index.html" class="btn btn-outline">← Voltar ao Dashboard</a>
   </div>
 </header>
 
-<div class="admin-body">
+<section id="adminLoginGate" class="admin-login-gate">
+  <div class="admin-login-card">
+    <h2>🔒 Acesso restrito</h2>
+    <p>Digite a senha para entrar na área administrativa e importar ou apagar planilhas.</p>
+    <div class="admin-login-form">
+      <input
+        type="password"
+        id="adminPasswordInput"
+        class="form-control"
+        placeholder="Senha de administrador"
+        autocomplete="current-password"
+        onkeydown="if(event.key==='Enter') loginAdmin()"
+      >
+      <button class="btn btn-primary" onclick="loginAdmin()">Entrar</button>
+    </div>
+  </div>
+</section>
+
+<div id="adminShell" class="admin-body" style="display:none">
   <aside class="admin-sidebar">
     <div class="admin-nav-label">Importação</div>
     <div class="admin-nav-item active" data-panel="importar">📥 Importar Excel</div>

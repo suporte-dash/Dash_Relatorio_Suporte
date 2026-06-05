@@ -8,6 +8,9 @@ const ROOT_DIR = __dirname;
 const STORAGE_DIR = process.env.STORAGE_DIR || path.join(ROOT_DIR, 'storage');
 const UPLOAD_DIR = path.join(STORAGE_DIR, 'uploads');
 const STATE_FILE = path.join(STORAGE_DIR, 'state.json');
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Suporte@2026';
+const SESSION_COOKIE = 'dashboard_admin_session';
+const sessions = new Set();
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -48,6 +51,32 @@ function sendJson(res, statusCode, data) {
     'Content-Type': 'application/json; charset=utf-8',
   });
   res.end(JSON.stringify(data));
+}
+
+function parseCookies(cookieHeader) {
+  const cookies = {};
+  String(cookieHeader || '').split(';').forEach((pair) => {
+    const index = pair.indexOf('=');
+    if (index === -1) return;
+    const key = pair.slice(0, index).trim();
+    const value = pair.slice(index + 1).trim();
+    if (key) cookies[key] = decodeURIComponent(value);
+  });
+  return cookies;
+}
+
+function isAuthenticated(req) {
+  const cookies = parseCookies(req.headers.cookie);
+  const token = cookies[SESSION_COOKIE];
+  return Boolean(token && sessions.has(token));
+}
+
+function requireAuth(req, res) {
+  if (!isAuthenticated(req)) {
+    sendJson(res, 401, { error: 'Unauthorized' });
+    return false;
+  }
+  return true;
 }
 
 function readJsonFile(filePath, fallback) {
@@ -215,6 +244,7 @@ function saveUpload(req, res, url) {
 }
 
 async function handleImport(req, res) {
+  if (!requireAuth(req, res)) return;
   try {
     const payload = await readRequestBody(req);
     const data = payload.data;
@@ -261,7 +291,8 @@ function handleHistoryById(res, id) {
   sendJson(res, 200, entry);
 }
 
-function handleHistoryDelete(res, id) {
+function handleHistoryDelete(req, res, id) {
+  if (!requireAuth(req, res)) return;
   const state = readState();
   const index = state.history.findIndex((item) => String(item.id) === String(id));
   if (index === -1) {
@@ -282,6 +313,45 @@ function handleHistoryDelete(res, id) {
   sendJson(res, 200, { ok: true, state, removed });
 }
 
+async function handleLogin(req, res) {
+  try {
+    const payload = await readRequestBody(req);
+    const password = String(payload.password || '');
+
+    if (password !== ADMIN_PASSWORD) {
+      sendJson(res, 401, { ok: false, error: 'Senha inválida' });
+      return;
+    }
+
+    const token = `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+    sessions.add(token);
+
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Set-Cookie': `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Path=/; SameSite=Lax`,
+    });
+    res.end(JSON.stringify({ ok: true }));
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: error.message || 'Could not login' });
+  }
+}
+
+function handleLogout(req, res) {
+  const cookies = parseCookies(req.headers.cookie);
+  const token = cookies[SESSION_COOKIE];
+  if (token) sessions.delete(token);
+
+  res.writeHead(200, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Set-Cookie': `${SESSION_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax`,
+  });
+  res.end(JSON.stringify({ ok: true }));
+}
+
+function handleAuth(req, res) {
+  sendJson(res, 200, { authenticated: isAuthenticated(req) });
+}
+
 ensureDir(UPLOAD_DIR);
 ensureDir(STORAGE_DIR);
 if (!fs.existsSync(STATE_FILE)) {
@@ -296,7 +366,23 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/auth') {
+    handleAuth(req, res);
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/login') {
+    handleLogin(req, res);
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/logout') {
+    handleLogout(req, res);
+    return;
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/history') {
+    if (!requireAuth(req, res)) return;
     handleHistoryGet(res);
     return;
   }
@@ -309,7 +395,7 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'DELETE' && url.pathname.startsWith('/api/history/')) {
     const id = url.pathname.split('/').pop();
-    handleHistoryDelete(res, id);
+    handleHistoryDelete(req, res, id);
     return;
   }
 
@@ -319,11 +405,13 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/uploads') {
+    if (!requireAuth(req, res)) return;
     listUploads(res);
     return;
   }
 
   if (req.method === 'POST' && url.pathname === '/api/uploads') {
+    if (!requireAuth(req, res)) return;
     saveUpload(req, res, url);
     return;
   }

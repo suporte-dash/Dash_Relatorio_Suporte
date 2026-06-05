@@ -114,6 +114,49 @@ body::before {
 /* ── LAYOUT ── */
 .admin-body { display: flex; min-height: calc(100vh - 60px); position: relative; z-index: 1; }
 
+.admin-login-gate {
+  min-height: calc(100vh - 60px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  position: relative;
+  z-index: 1;
+}
+
+.admin-login-card {
+  width: 100%;
+  max-width: 460px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-lit);
+  border-radius: var(--radius);
+  padding: 28px;
+  box-shadow: 0 12px 48px rgba(0,0,0,0.35);
+}
+
+.admin-login-card h2 {
+  font-family: var(--font-head);
+  font-size: 22px;
+  margin-bottom: 8px;
+}
+
+.admin-login-card p {
+  color: var(--txt-2);
+  font-size: 13px;
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+
+.admin-login-form {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.admin-login-form .form-control {
+  flex: 1;
+}
+
 .admin-sidebar {
   width: 220px; flex-shrink: 0;
   background: var(--bg-card);
