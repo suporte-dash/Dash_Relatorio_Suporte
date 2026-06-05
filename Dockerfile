@@ -4,9 +4,9 @@ WORKDIR /app
 
 COPY . .
 
-RUN mkdir -p /app/uploads
+RUN mkdir -p /app/storage
 
-VOLUME ["/app/uploads"]
+VOLUME ["/app/storage"]
 
 EXPOSE 8085
 

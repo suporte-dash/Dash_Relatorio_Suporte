@@ -5,7 +5,9 @@ const { URL } = require('node:url');
 
 const PORT = 8085;
 const ROOT_DIR = __dirname;
-const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(ROOT_DIR, 'uploads');
+const STORAGE_DIR = process.env.STORAGE_DIR || path.join(ROOT_DIR, 'storage');
+const UPLOAD_DIR = path.join(STORAGE_DIR, 'uploads');
+const STATE_FILE = path.join(STORAGE_DIR, 'state.json');
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -48,17 +50,59 @@ function sendJson(res, statusCode, data) {
   res.end(JSON.stringify(data));
 }
 
+function readJsonFile(filePath, fallback) {
+  try {
+    if (!fs.existsSync(filePath)) return fallback;
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function writeJsonFile(filePath, data) {
+  ensureDir(path.dirname(filePath));
+  const tempFile = `${filePath}.tmp`;
+  fs.writeFileSync(tempFile, JSON.stringify(data, null, 2));
+  fs.renameSync(tempFile, filePath);
+}
+
+function emptyState() {
+  return { currentData: null, history: [] };
+}
+
+function readState() {
+  const state = readJsonFile(STATE_FILE, emptyState());
+  if (!state || typeof state !== 'object') return emptyState();
+  if (!Array.isArray(state.history)) state.history = [];
+  if (!('currentData' in state)) state.currentData = null;
+  return state;
+}
+
+function saveState(state) {
+  writeJsonFile(STATE_FILE, state);
+}
+
+function buildHistoryEntry(data, meta = {}) {
+  return {
+    id: Date.now(),
+    periodo: meta.periodo || data?.periodo || '—',
+    savedAt: new Date().toLocaleString('pt-BR'),
+    sourceFileName: meta.sourceFileName || null,
+    savedFileName: meta.savedFileName || null,
+    data,
+  };
+}
+
 function serveStatic(req, res, pathname) {
   const relativePath = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-  let filePath = path.join(ROOT_DIR, relativePath);
-  const normalized = path.normalize(filePath);
+  const filePath = path.normalize(path.join(ROOT_DIR, relativePath));
 
-  if (!normalized.startsWith(ROOT_DIR)) {
+  if (!filePath.startsWith(ROOT_DIR)) {
     send(res, 403, 'Forbidden');
     return;
   }
 
-  fs.stat(normalized, (err, stats) => {
+  fs.stat(filePath, (err, stats) => {
     if (err || !stats.isFile()) {
       const fallback = path.join(ROOT_DIR, 'index.html');
       fs.readFile(fallback, (fallbackErr, content) => {
@@ -72,9 +116,9 @@ function serveStatic(req, res, pathname) {
       return;
     }
 
-    const ext = path.extname(normalized).toLowerCase();
+    const ext = path.extname(filePath).toLowerCase();
     const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-    fs.readFile(normalized, (readErr, content) => {
+    fs.readFile(filePath, (readErr, content) => {
       if (readErr) {
         send(res, 500, 'Could not read file');
         return;
@@ -107,6 +151,32 @@ function listUploads(res) {
   });
 }
 
+function readRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > 10 * 1024 * 1024) {
+        reject(new Error('Request body too large'));
+        req.destroy();
+      }
+    });
+    req.on('end', () => {
+      if (!body) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(body));
+      } catch (error) {
+        reject(error);
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
 function saveUpload(req, res, url) {
   ensureDir(UPLOAD_DIR);
 
@@ -115,37 +185,111 @@ function saveUpload(req, res, url) {
   const fileName = `${timestamp}-${originalName}`;
   const filePath = path.join(UPLOAD_DIR, fileName);
 
-  const target = fs.createWriteStream(filePath);
+  const chunks = [];
   let written = 0;
 
   req.on('data', (chunk) => {
+    chunks.push(chunk);
     written += chunk.length;
   });
 
   req.on('aborted', () => {
-    target.destroy();
     fs.rm(filePath, { force: true }, () => {});
   });
 
-  req.pipe(target);
-
-  target.on('finish', () => {
-    sendJson(res, 201, {
-      ok: true,
-      fileName,
-      bytes: written,
-    });
-  });
-
-  target.on('error', () => {
-    sendJson(res, 500, { ok: false, error: 'Could not store upload' });
+  req.on('end', () => {
+    try {
+      fs.writeFileSync(filePath, Buffer.concat(chunks));
+      sendJson(res, 201, {
+        ok: true,
+        fileName,
+        bytes: written,
+      });
+    } catch (error) {
+      sendJson(res, 500, {
+        ok: false,
+        error: `Could not store upload: ${error.message}`,
+      });
+    }
   });
 }
 
+async function handleImport(req, res) {
+  try {
+    const payload = await readRequestBody(req);
+    const data = payload.data;
+
+    if (!data || typeof data !== 'object') {
+      sendJson(res, 400, { error: 'Import payload missing data' });
+      return;
+    }
+
+    const state = readState();
+    const entry = buildHistoryEntry(data, {
+      periodo: payload.periodo,
+      sourceFileName: payload.sourceFileName,
+      savedFileName: payload.savedFileName,
+    });
+
+    state.currentData = data;
+    state.history.unshift(entry);
+    if (state.history.length > 24) state.history.splice(24);
+
+    saveState(state);
+    sendJson(res, 200, { ok: true, state, entry });
+  } catch (error) {
+    sendJson(res, 400, { error: error.message || 'Could not import data' });
+  }
+}
+
+function handleStateGet(res) {
+  sendJson(res, 200, readState());
+}
+
+function handleHistoryGet(res) {
+  const state = readState();
+  sendJson(res, 200, { history: state.history });
+}
+
+function handleHistoryById(res, id) {
+  const state = readState();
+  const entry = state.history.find((item) => String(item.id) === String(id));
+  if (!entry) {
+    sendJson(res, 404, { error: 'History entry not found' });
+    return;
+  }
+  sendJson(res, 200, entry);
+}
+
 ensureDir(UPLOAD_DIR);
+ensureDir(STORAGE_DIR);
+if (!fs.existsSync(STATE_FILE)) {
+  saveState(emptyState());
+}
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+  if (req.method === 'GET' && url.pathname === '/api/state') {
+    handleStateGet(res);
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/history') {
+    handleHistoryGet(res);
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname.startsWith('/api/history/')) {
+    const id = url.pathname.split('/').pop();
+    handleHistoryById(res, id);
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/import') {
+    handleImport(req, res);
+    return;
+  }
 
   if (req.method === 'GET' && url.pathname === '/api/uploads') {
     listUploads(res);
@@ -167,5 +311,5 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Dashboard running on http://localhost:${PORT}`);
-  console.log(`Uploads stored in ${UPLOAD_DIR}`);
+  console.log(`Storage directory: ${STORAGE_DIR}`);
 });

@@ -111,6 +111,10 @@ const DEFAULT_DATA = {
 // ─── Persistência com LocalStorage ─────────────────────────────────────────
 const STORAGE_KEY = 'suporte_dashboard_data';
 
+function notifyDataChange() {
+  window.dispatchEvent(new CustomEvent('dashboard-data-changed'));
+}
+
 function loadData() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -122,11 +126,61 @@ function loadData() {
 
 function saveData(data) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  notifyDataChange();
 }
 
 function resetData() {
   localStorage.removeItem(STORAGE_KEY);
+  notifyDataChange();
   return JSON.parse(JSON.stringify(DEFAULT_DATA));
+}
+
+async function apiJson(pathname, options = {}) {
+  const response = await fetch(pathname, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+    ...options,
+  });
+
+  const isJson = (response.headers.get('content-type') || '').includes('application/json');
+  const payload = isJson ? await response.json() : await response.text();
+
+  if (!response.ok) {
+    const message = typeof payload === 'string' ? payload : (payload?.error || 'Server request failed');
+    throw new Error(message);
+  }
+
+  return payload;
+}
+
+async function fetchRemoteState() {
+  try {
+    return await apiJson('/api/state');
+  } catch (error) {
+    return null;
+  }
+}
+
+async function fetchRemoteHistory() {
+  try {
+    const payload = await apiJson('/api/history');
+    return payload.history || [];
+  } catch (error) {
+    return [];
+  }
+}
+
+async function fetchRemoteHistoryEntry(id) {
+  return apiJson(`/api/history/${encodeURIComponent(id)}`);
+}
+
+async function submitRemoteImport(payload) {
+  return apiJson('/api/import', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 
 
@@ -134,28 +188,24 @@ function resetData() {
 const VIEW_KEY = 'suporte_dashboard_view';
 
 function setViewingSnapshot(snapshotData) {
-  sessionStorage.setItem(VIEW_KEY, JSON.stringify(snapshotData));
+  window.__dashboardViewing = snapshotData ? {
+    periodo: snapshotData.periodo || '—',
+    isViewing: true,
+    data: snapshotData,
+  } : null;
 }
 
 function clearViewingSnapshot() {
-  sessionStorage.removeItem(VIEW_KEY);
+  window.__dashboardViewing = null;
 }
 
 function loadDataForDashboard() {
-  try {
-    const viewing = sessionStorage.getItem(VIEW_KEY);
-    if (viewing) return JSON.parse(viewing);
-  } catch(e) {}
+  if (window.__dashboardViewing?.data) return window.__dashboardViewing.data;
   return loadData();
 }
 
 function getViewingMeta() {
-  try {
-    const viewing = sessionStorage.getItem(VIEW_KEY);
-    if (!viewing) return null;
-    const data = JSON.parse(viewing);
-    return { periodo: data.periodo || '—', isViewing: true };
-  } catch(e) { return null; }
+  return window.__dashboardViewing || null;
 }
 
 // ─── Cálculos Derivados ─────────────────────────────────────────────────────

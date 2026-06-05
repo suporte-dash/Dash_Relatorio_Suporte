@@ -21,6 +21,20 @@ const charts = {};
 let currentFilter = 'TODOS';
 let currentData = null;
 
+function setPeriodLabels(periodo) {
+  const label = document.getElementById('periodLabel');
+  const text = document.getElementById('periodText');
+  if (label && periodo) label.textContent = periodo;
+  if (text && periodo) text.textContent = periodo;
+}
+
+function setOverviewSummary() {
+  const summary = document.querySelector('#section-overview .section-header p');
+  if (summary && currentData) {
+    summary.textContent = `Período: ${currentData.periodo || '—'} · ${currentData.atendentes.length} Atendentes · Dados atualizados`;
+  }
+}
+
 // ─── Banner de Visualização Histórica ────────────────────────────────────────
 function initHistoryBanner() {
   const meta = getViewingMeta();
@@ -154,14 +168,48 @@ function toggleHistoryBanner() {
 
 function exitHistoryView() {
   clearViewingSnapshot();
-  window.location.reload();
+  window.location.href = 'index.html';
+}
+
+function syncDashboardData() {
+  initHistoryBanner();
+  renderAll();
+  setPeriodLabels(currentData?.periodo);
 }
 
 // ─── Init ───────────────────────────────────────────────────────────────────
-function init() {
-  currentData = loadDataForDashboard();
+async function loadDashboardState() {
+  const params = new URLSearchParams(window.location.search);
+  const historyId = params.get('historyId');
+
+  if (historyId) {
+    try {
+      const entry = await fetchRemoteHistoryEntry(historyId);
+      if (entry?.data) {
+        setViewingSnapshot(entry.data);
+        return entry.data;
+      }
+    } catch (error) {}
+  }
+
+  try {
+    const remoteState = await fetchRemoteState();
+    if (remoteState?.currentData) {
+      clearViewingSnapshot();
+      return remoteState.currentData;
+    }
+  } catch (error) {}
+
+  clearViewingSnapshot();
+  return loadData();
+}
+
+async function init() {
+  currentData = await loadDashboardState();
   initHistoryBanner();
   renderAll();
+  setPeriodLabels(currentData?.periodo);
+  setOverviewSummary();
 
   // Navegação
   document.querySelectorAll('.nav-item[data-section]').forEach(btn => {
@@ -221,6 +269,8 @@ function renderAll() {
   renderAtendentesSection();
   renderFluxoSection();
   renderInsights();
+  setPeriodLabels(currentData?.periodo);
+  setOverviewSummary();
 }
 
 // ─── KPIs ────────────────────────────────────────────────────────────────────
@@ -750,11 +800,18 @@ function chartOpts(extra = {}) {
 }
 
 // ─── Reload quando dados mudam ────────────────────────────────────────────────
-window.addEventListener('storage', (e) => {
-  if (e.key === 'suporte_dashboard_data') {
-    currentData = loadDataForDashboard();
-    renderAll();
-  }
+document.addEventListener('DOMContentLoaded', () => {
+  init().catch((error) => console.error(error));
 });
 
-document.addEventListener('DOMContentLoaded', init);
+setInterval(() => {
+  if (!window.__dashboardViewing?.data) {
+    loadDashboardState().then((data) => {
+      currentData = data;
+      renderAll();
+      initHistoryBanner();
+      setPeriodLabels(currentData?.periodo);
+      setOverviewSummary();
+    }).catch(() => {});
+  }
+}, 15000);

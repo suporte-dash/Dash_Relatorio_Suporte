@@ -4,7 +4,7 @@ services:
     ports:
       - "8085:8085"
     volumes:
-      - dashboard_uploads:/app/uploads
+      - dashboard_storage:/app/storage
 
 volumes:
-  dashboard_uploads:
+  dashboard_storage:
